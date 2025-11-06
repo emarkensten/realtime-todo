@@ -25,11 +25,14 @@ app.prepare().then(() => {
     }
   });
 
-  // Create WebSocket server
-  const wss = new WebSocketServer({ server });
+  // Create WebSocket server with path filtering
+  const wss = new WebSocketServer({
+    server,
+    path: '/api/ws'
+  });
 
   wss.on('connection', (ws) => {
-    console.log('Client connected');
+    console.log('Client connected to /api/ws');
 
     // Send current state to new client
     ws.send(JSON.stringify({
