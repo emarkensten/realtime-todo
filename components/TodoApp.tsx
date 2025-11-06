@@ -36,11 +36,11 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
   const activeTodos = list.todos.filter(t => !t.completed);
   const completedTodos = list.todos.filter(t => t.completed);
 
-  const handleAddTodo = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newTodoText.trim()) {
+  // Submit todo logic - used both for form submit and when selecting from suggestions
+  const submitTodo = (text: string) => {
+    if (text.trim()) {
       // Parse the input for shopping items
-      const parsedItems = parseShoppingItem(newTodoText);
+      const parsedItems = parseShoppingItem(text);
 
       // Add each parsed item as a separate todo
       parsedItems.forEach(item => {
@@ -57,6 +57,16 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
 
       setNewTodoText('');
     }
+  };
+
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault();
+    submitTodo(newTodoText);
+  };
+
+  const handleSelectSuggestion = (suggestion: string) => {
+    // When selecting from autocomplete, submit immediately
+    submitTodo(suggestion);
   };
 
   const handleToggleTodo = (todo: Todo) => {
@@ -288,7 +298,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
               <GroceryAutocomplete
                 value={newTodoText}
                 onChange={setNewTodoText}
-                onSelectSuggestion={(suggestion) => setNewTodoText(suggestion)}
+                onSelectSuggestion={handleSelectSuggestion}
                 placeholder="mjölk, 4 apelsiner..."
               />
               <Button

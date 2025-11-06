@@ -825,11 +825,36 @@ export const groceryData: GroceryItem[] = [
   { name: "engångsglas", category: "Övrigt", common: false },
 ];
 
+// Extract product name from input like "två mjölk" or "300 g mjöl" -> "mjölk", "mjöl"
+function extractProductName(input: string): string {
+  const trimmed = input.trim();
+
+  // Pattern: [amount] [unit] item
+  // Examples: "4 apelsiner", "300g mjöl", "två mjölk"
+  const match = trimmed.match(/^(\d+[,.]?\d*|\d+-\d+|en|ett|två|tre|fyra|fem|sex|sju|åtta|nio|tio)\s*([a-zåäö]+)?\s+(.+)$/i);
+
+  if (match) {
+    const [, , possibleUnit, item] = match;
+
+    // Check if possibleUnit is a known unit
+    const unitPattern = /^(st|stycken|styck|kg|kilo|g|gram|hg|hekto|l|liter|dl|deciliter|ml|msk|matsked|tsk|tesked|krm|påse|påsar|burk|burkar|paket|förp|förpackning)$/i;
+    const isUnit = possibleUnit && unitPattern.test(possibleUnit);
+
+    // If possibleUnit wasn't a unit, include it in the product name
+    return isUnit ? item : (possibleUnit ? `${possibleUnit} ${item}` : item);
+  }
+
+  // No amount/unit found, return as-is
+  return trimmed;
+}
+
 // Search function with fuzzy matching
 export function searchGroceries(query: string, limit: number = 5): GroceryItem[] {
   if (!query || query.length < 2) return [];
 
-  const normalizedQuery = query.toLowerCase().trim();
+  // Extract product name from query (e.g., "två mjölk" -> "mjölk")
+  const productName = extractProductName(query);
+  const normalizedQuery = productName.toLowerCase().trim();
 
   // Score each item
   const scored = groceryData.map(item => {
