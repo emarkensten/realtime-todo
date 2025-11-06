@@ -5,8 +5,16 @@ export interface Todo {
   createdAt: number;
 }
 
+export interface TodoList {
+  id: string;
+  name: string;
+  todos: Todo[];
+  createdAt: number;
+}
+
 export type MessageType =
-  | { type: 'init'; todos: Todo[] }
+  | { type: 'init'; list: TodoList }
+  | { type: 'update-name'; name: string }
   | { type: 'add'; todo: Todo }
   | { type: 'update'; todo: Todo }
   | { type: 'delete'; id: string }
