@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, ChevronDown, ChevronUp, Plus, ArrowLeft, Share2, WifiOff } from 'lucide-react';
 import { parseShoppingItem } from '@/lib/shoppingParser';
+import { GroceryAutocomplete } from '@/components/GroceryAutocomplete';
 import type { Todo } from '@/types/todo';
 
 interface TodoAppProps {
@@ -284,14 +285,11 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
         <div className="max-w-2xl mx-auto px-4 py-3">
           <form onSubmit={handleAddTodo}>
             <div className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="4 apelsiner, 2 äpplen..."
+              <GroceryAutocomplete
                 value={newTodoText}
-                onChange={(e) => setNewTodoText(e.target.value)}
-                className="flex-1 h-14 text-base px-4"
-                enterKeyHint="done"
-                autoComplete="off"
+                onChange={setNewTodoText}
+                onSelectSuggestion={(suggestion) => setNewTodoText(suggestion)}
+                placeholder="mjölk, 4 apelsiner..."
               />
               <Button
                 type="submit"
