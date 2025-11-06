@@ -133,6 +133,10 @@ app.prepare().then(() => {
             list.todos = list.todos.filter(t => t.id !== data.id);
             saveList(listId, list);
             break;
+          case 'delete-completed':
+            list.todos = list.todos.filter(t => !t.completed);
+            saveList(listId, list);
+            break;
           case 'text-update':
             const todoIndex = list.todos.findIndex(t => t.id === data.id);
             if (todoIndex !== -1) {

@@ -18,4 +18,5 @@ export type MessageType =
   | { type: 'add'; todo: Todo }
   | { type: 'update'; todo: Todo }
   | { type: 'delete'; id: string }
+  | { type: 'delete-completed' }
   | { type: 'text-update'; id: string; text: string };

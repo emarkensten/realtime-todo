@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Todo, TodoList, MessageType } from '@/types/todo';
 
 export function useWebSocket(listId: string) {
@@ -13,56 +13,97 @@ export function useWebSocket(listId: string) {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const messageQueueRef = useRef<MessageType[]>([]);
 
-  const connect = () => {
+  // Load from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem(`list-${listId}`);
+    if (stored) {
+      try {
+        setList(JSON.parse(stored));
+      } catch (e) {
+        console.error('Failed to load from localStorage:', e);
+      }
+    }
+  }, [listId]);
+
+  // Save to localStorage on changes
+  useEffect(() => {
+    localStorage.setItem(`list-${listId}`, JSON.stringify(list));
+  }, [list, listId]);
+
+  // Apply message to local state (optimistic update)
+  const applyMessage = useCallback((data: MessageType) => {
+    switch (data.type) {
+      case 'init':
+        setList(data.list);
+        break;
+      case 'update-name':
+        setList(prev => ({ ...prev, name: data.name }));
+        break;
+      case 'add':
+        setList(prev => {
+          if (prev.todos.some(t => t.id === data.todo.id)) {
+            return prev;
+          }
+          return { ...prev, todos: [...prev.todos, data.todo] };
+        });
+        break;
+      case 'update':
+        setList(prev => ({
+          ...prev,
+          todos: prev.todos.map(todo => (todo.id === data.todo.id ? data.todo : todo))
+        }));
+        break;
+      case 'delete':
+        setList(prev => ({
+          ...prev,
+          todos: prev.todos.filter(todo => todo.id !== data.id)
+        }));
+        break;
+      case 'delete-completed':
+        setList(prev => ({
+          ...prev,
+          todos: prev.todos.filter(todo => !todo.completed)
+        }));
+        break;
+      case 'text-update':
+        setList(prev => ({
+          ...prev,
+          todos: prev.todos.map(todo =>
+            todo.id === data.id ? { ...todo, text: data.text } : todo
+          )
+        }));
+        break;
+    }
+  }, []);
+
+  // Flush message queue
+  const flushQueue = useCallback(() => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      while (messageQueueRef.current.length > 0) {
+        const message = messageQueueRef.current.shift();
+        if (message) {
+          wsRef.current.send(JSON.stringify(message));
+        }
+      }
+    }
+  }, []);
+
+  const connect = useCallback(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/api/ws?listId=${listId}`);
 
     ws.onopen = () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      // Flush any queued messages
+      flushQueue();
     };
 
     ws.onmessage = (event) => {
       const data: MessageType = JSON.parse(event.data);
-
-      switch (data.type) {
-        case 'init':
-          setList(data.list);
-          break;
-        case 'update-name':
-          setList(prev => ({ ...prev, name: data.name }));
-          break;
-        case 'add':
-          setList(prev => {
-            // Check if todo already exists to prevent duplicates
-            if (prev.todos.some(t => t.id === data.todo.id)) {
-              return prev;
-            }
-            return { ...prev, todos: [...prev.todos, data.todo] };
-          });
-          break;
-        case 'update':
-          setList(prev => ({
-            ...prev,
-            todos: prev.todos.map(todo => (todo.id === data.todo.id ? data.todo : todo))
-          }));
-          break;
-        case 'delete':
-          setList(prev => ({
-            ...prev,
-            todos: prev.todos.filter(todo => todo.id !== data.id)
-          }));
-          break;
-        case 'text-update':
-          setList(prev => ({
-            ...prev,
-            todos: prev.todos.map(todo =>
-              todo.id === data.id ? { ...todo, text: data.text } : todo
-            )
-          }));
-          break;
-      }
+      applyMessage(data);
     };
 
     ws.onclose = () => {
@@ -80,7 +121,7 @@ export function useWebSocket(listId: string) {
     };
 
     wsRef.current = ws;
-  };
+  }, [listId, flushQueue, applyMessage]);
 
   useEffect(() => {
     connect();
@@ -93,33 +134,44 @@ export function useWebSocket(listId: string) {
         wsRef.current.close();
       }
     };
-  }, [listId]);
+  }, [connect]);
 
-  const sendMessage = (message: MessageType) => {
+  const sendMessage = useCallback((message: MessageType) => {
+    // Apply optimistically to local state
+    applyMessage(message);
+
+    // Send to server or queue if offline
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+    } else {
+      // Queue for later when we reconnect
+      messageQueueRef.current.push(message);
     }
-  };
+  }, [applyMessage]);
 
-  const updateListName = (name: string) => {
+  const updateListName = useCallback((name: string) => {
     sendMessage({ type: 'update-name', name });
-  };
+  }, [sendMessage]);
 
-  const addTodo = (todo: Todo) => {
+  const addTodo = useCallback((todo: Todo) => {
     sendMessage({ type: 'add', todo });
-  };
+  }, [sendMessage]);
 
-  const updateTodo = (todo: Todo) => {
+  const updateTodo = useCallback((todo: Todo) => {
     sendMessage({ type: 'update', todo });
-  };
+  }, [sendMessage]);
 
-  const deleteTodo = (id: string) => {
+  const deleteTodo = useCallback((id: string) => {
     sendMessage({ type: 'delete', id });
-  };
+  }, [sendMessage]);
 
-  const updateTodoText = (id: string, text: string) => {
+  const deleteCompleted = useCallback(() => {
+    sendMessage({ type: 'delete-completed' });
+  }, [sendMessage]);
+
+  const updateTodoText = useCallback((id: string, text: string) => {
     sendMessage({ type: 'text-update', id, text });
-  };
+  }, [sendMessage]);
 
   return {
     list,
@@ -128,6 +180,7 @@ export function useWebSocket(listId: string) {
     addTodo,
     updateTodo,
     deleteTodo,
+    deleteCompleted,
     updateTodoText,
   };
 }
