@@ -56,6 +56,9 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
       });
 
       setNewTodoText('');
+
+      // Auto-scroll to top where new items appear
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 
