@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, ChevronDown, ChevronUp, Plus, ArrowLeft, Share2, WifiOff } from 'lucide-react';
+import { parseShoppingItem } from '@/lib/shoppingParser';
 import type { Todo } from '@/types/todo';
 
 interface TodoAppProps {
@@ -22,7 +23,6 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
   const [showCompleted, setShowCompleted] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState('');
-  const [showShareMenu, setShowShareMenu] = useState(false);
   const router = useRouter();
 
   // Set initial name if provided
@@ -38,13 +38,22 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();
     if (newTodoText.trim()) {
-      const newTodo: Todo = {
-        id: uuidv4(),
-        text: newTodoText.trim(),
-        completed: false,
-        createdAt: Date.now(),
-      };
-      addTodo(newTodo);
+      // Parse the input for shopping items
+      const parsedItems = parseShoppingItem(newTodoText);
+
+      // Add each parsed item as a separate todo
+      parsedItems.forEach(item => {
+        const newTodo: Todo = {
+          id: uuidv4(),
+          text: item.text,
+          amount: item.amount,
+          unit: item.unit,
+          completed: false,
+          createdAt: Date.now(),
+        };
+        addTodo(newTodo);
+      });
+
       setNewTodoText('');
     }
   };
@@ -92,8 +101,16 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
     }
   };
 
+  const formatTodoDisplay = (todo: Todo) => {
+    const parts: string[] = [];
+    if (todo.amount) parts.push(todo.amount);
+    if (todo.unit) parts.push(todo.unit);
+    parts.push(todo.text);
+    return parts.join(' ');
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-28">
       {/* Header - Fixed */}
       <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-3">
@@ -152,36 +169,14 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
       </div>
 
       {/* Main Content */}
-      <div className="max-w-2xl mx-auto px-4 py-4 pb-24">
-        {/* Add Todo Form */}
-        <form onSubmit={handleAddTodo} className="mb-4">
-          <div className="flex gap-2">
-            <Input
-              type="text"
-              placeholder="Lägg till uppgift..."
-              value={newTodoText}
-              onChange={(e) => setNewTodoText(e.target.value)}
-              className="flex-1 h-12 text-base"
-              autoFocus
-            />
-            <Button
-              type="submit"
-              disabled={!newTodoText.trim()}
-              className="h-12 px-6"
-              size="lg"
-            >
-              <Plus className="h-5 w-5" />
-            </Button>
-          </div>
-        </form>
-
+      <div className="max-w-2xl mx-auto px-4 py-4">
         {/* Active Todos */}
         <div className="space-y-2">
           {activeTodos.length === 0 ? (
             <Card className="border-dashed">
               <CardContent className="py-12 text-center text-gray-500">
                 <p>Inga uppgifter än</p>
-                <p className="text-sm mt-1">Lägg till din första uppgift ovan</p>
+                <p className="text-sm mt-1">Lägg till din första uppgift nedan</p>
               </CardContent>
             </Card>
           ) : (
@@ -190,25 +185,34 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
               .map((todo) => (
                 <Card key={todo.id} className="hover:shadow-md transition-shadow">
                   <CardContent className="p-3">
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-center gap-3">
                       <Checkbox
                         checked={todo.completed}
                         onCheckedChange={() => handleToggleTodo(todo)}
-                        className="mt-1.5 h-5 w-5"
+                        className="h-6 w-6 flex-shrink-0"
                       />
-                      <Input
-                        type="text"
-                        value={todo.text}
-                        onChange={(e) => updateTodoText(todo.id, e.target.value)}
-                        className="flex-1 border-0 bg-transparent focus-visible:ring-0 px-0 h-auto py-1 text-base"
-                      />
+                      <div className="flex-1 flex items-baseline gap-2">
+                        {todo.amount && (
+                          <span className="font-semibold text-primary text-lg">
+                            {todo.amount}
+                          </span>
+                        )}
+                        {todo.unit && (
+                          <span className="text-sm text-gray-500 font-medium">
+                            {todo.unit}
+                          </span>
+                        )}
+                        <span className="text-base flex-1">
+                          {todo.text}
+                        </span>
+                      </div>
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteTodo(todo.id)}
-                        className="text-gray-400 hover:text-red-600 p-2 -mr-2"
+                        className="text-gray-400 hover:text-red-600 p-2 -mr-2 flex-shrink-0"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-5 w-5" />
                       </Button>
                     </div>
                   </CardContent>
@@ -239,14 +243,14 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                   .map((todo) => (
                     <Card key={todo.id} className="bg-gray-50 dark:bg-gray-800/50">
                       <CardContent className="p-3">
-                        <div className="flex items-start gap-3">
+                        <div className="flex items-center gap-3">
                           <Checkbox
                             checked={todo.completed}
                             onCheckedChange={() => handleToggleTodo(todo)}
-                            className="mt-1.5 h-5 w-5"
+                            className="h-6 w-6 flex-shrink-0"
                           />
-                          <span className="flex-1 text-gray-500 line-through py-1">
-                            {todo.text}
+                          <span className="flex-1 text-gray-500 line-through">
+                            {formatTodoDisplay(todo)}
                           </span>
                           <Button
                             variant="ghost"
@@ -254,7 +258,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                             onClick={() => handleDeleteTodo(todo.id)}
                             className="text-gray-400 hover:text-red-600 p-2 -mr-2"
                           >
-                            <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-5 w-5" />
                           </Button>
                         </div>
                       </CardContent>
@@ -273,6 +277,33 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
             )}
           </div>
         )}
+      </div>
+
+      {/* Sticky Bottom Input */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t shadow-lg safe-area-inset-bottom">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <form onSubmit={handleAddTodo}>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="4 apelsiner, 2 äpplen..."
+                value={newTodoText}
+                onChange={(e) => setNewTodoText(e.target.value)}
+                className="flex-1 h-14 text-base px-4"
+                enterKeyHint="done"
+                autoComplete="off"
+              />
+              <Button
+                type="submit"
+                disabled={!newTodoText.trim()}
+                className="h-14 px-6 text-base"
+                size="lg"
+              >
+                <Plus className="h-6 w-6" />
+              </Button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );

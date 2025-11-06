@@ -1,6 +1,8 @@
 export interface Todo {
   id: string;
   text: string;
+  amount?: string;  // "4", "2-3", "fem"
+  unit?: string;    // "st", "kg", "g", "dl", "l", "ml"
   completed: boolean;
   createdAt: number;
 }
