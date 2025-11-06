@@ -49,8 +49,32 @@ export function GroceryAutocomplete({
     }
   }, [value]);
 
+  // Extract quantity/unit from current input and combine with selected product
+  const extractQuantityAndUnit = (input: string): { quantity: string; unit: string } | null => {
+    const trimmed = input.trim();
+    // Pattern: [amount] [unit] item
+    // Examples: "400g toma", "2 kg äp", "två mj"
+    const match = trimmed.match(/^(\d+[,.]?\d*|\d+-\d+|en|ett|två|tre|fyra|fem|sex|sju|åtta|nio|tio)\s*([a-zåäö]+)?\s+/i);
+
+    if (match) {
+      const quantity = match[1];
+      const unit = match[2] || '';
+      return { quantity, unit };
+    }
+    return null;
+  };
+
   const handleSelectSuggestion = (suggestion: GroceryItem) => {
-    onSelectSuggestion(suggestion.name);
+    // Extract quantity/unit from what user typed (e.g., "400g" from "400g toma")
+    const quantityUnit = extractQuantityAndUnit(value);
+
+    // Combine with selected product name
+    let fullText = suggestion.name;
+    if (quantityUnit) {
+      fullText = `${quantityUnit.quantity}${quantityUnit.unit ? ' ' + quantityUnit.unit : ''} ${suggestion.name}`;
+    }
+
+    onSelectSuggestion(fullText);
     setShowSuggestions(false);
     setGhostText('');
   };
@@ -59,7 +83,17 @@ export function GroceryAutocomplete({
     // Tab or Right Arrow - accept ghost text
     if ((e.key === 'Tab' || e.key === 'ArrowRight') && ghostText) {
       e.preventDefault();
-      onSelectSuggestion(ghostText);
+
+      // Extract quantity/unit from what user typed
+      const quantityUnit = extractQuantityAndUnit(value);
+
+      // Combine with ghost text
+      let fullText = ghostText;
+      if (quantityUnit) {
+        fullText = `${quantityUnit.quantity}${quantityUnit.unit ? ' ' + quantityUnit.unit : ''} ${ghostText}`;
+      }
+
+      onSelectSuggestion(fullText);
       setGhostText('');
       setShowSuggestions(false);
     }
