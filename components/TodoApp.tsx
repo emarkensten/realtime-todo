@@ -4,11 +4,13 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Trash2, Wifi, WifiOff, Copy, Check, Home, Share2 } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp, Plus, ArrowLeft, Share2, WifiOff } from 'lucide-react';
+import { parseShoppingItem } from '@/lib/shoppingParser';
+import { GroceryAutocomplete } from '@/components/GroceryAutocomplete';
 import type { Todo } from '@/types/todo';
 
 interface TodoAppProps {
@@ -17,9 +19,9 @@ interface TodoAppProps {
 }
 
 export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
-  const { list, isConnected, updateListName, addTodo, updateTodo, deleteTodo, updateTodoText } = useWebSocket(listId);
+  const { list, isConnected, updateListName, addTodo, updateTodo, deleteTodo, deleteCompleted, updateTodoText } = useWebSocket(listId);
   const [newTodoText, setNewTodoText] = useState('');
-  const [copied, setCopied] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState('');
   const router = useRouter();
@@ -31,18 +33,43 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
     }
   }, [initialName, list.name, isConnected, updateListName]);
 
+  const activeTodos = list.todos.filter(t => !t.completed);
+  const completedTodos = list.todos.filter(t => t.completed);
+
+  // Submit todo logic - used both for form submit and when selecting from suggestions
+  const submitTodo = (text: string) => {
+    if (text.trim()) {
+      // Parse the input for shopping items
+      const parsedItems = parseShoppingItem(text);
+
+      // Add each parsed item as a separate todo
+      parsedItems.forEach(item => {
+        const newTodo: Todo = {
+          id: uuidv4(),
+          text: item.text,
+          amount: item.amount,
+          unit: item.unit,
+          completed: false,
+          createdAt: Date.now(),
+        };
+        addTodo(newTodo);
+      });
+
+      setNewTodoText('');
+
+      // Auto-scroll to top where new items appear
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newTodoText.trim()) {
-      const newTodo: Todo = {
-        id: uuidv4(),
-        text: newTodoText.trim(),
-        completed: false,
-        createdAt: Date.now(),
-      };
-      addTodo(newTodo);
-      setNewTodoText('');
-    }
+    submitTodo(newTodoText);
+  };
+
+  const handleSelectSuggestion = (suggestion: string) => {
+    // When selecting from autocomplete, submit immediately
+    submitTodo(suggestion);
   };
 
   const handleToggleTodo = (todo: Todo) => {
@@ -54,21 +81,6 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
 
   const handleDeleteTodo = (id: string) => {
     deleteTodo(id);
-  };
-
-  const handleTextChange = (id: string, text: string) => {
-    updateTodoText(id, text);
-  };
-
-  const handleCopyLink = async () => {
-    const url = window.location.href.split('?')[0]; // Remove query params
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
   };
 
   const handleStartEditName = () => {
@@ -83,183 +95,225 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
     setEditingName(false);
   };
 
-  const handleCancelEditName = () => {
-    setEditingName(false);
-    setTempName('');
+  const handleShare = async () => {
+    const url = window.location.href.split('?')[0];
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: list.name || 'Min lista',
+          url: url
+        });
+      } catch (err) {
+        if ((err as Error).name !== 'AbortError') {
+          await navigator.clipboard.writeText(url);
+          alert('Länk kopierad!');
+        }
+      }
+    } else {
+      await navigator.clipboard.writeText(url);
+      alert('Länk kopierad!');
+    }
+  };
+
+  const formatTodoDisplay = (todo: Todo) => {
+    const parts: string[] = [];
+    if (todo.amount) parts.push(todo.amount);
+    if (todo.unit) parts.push(todo.unit);
+    parts.push(todo.text);
+    return parts.join(' ');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800 p-4 md:p-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => router.push('/')}
-            className="gap-2"
-          >
-            <Home className="h-4 w-4" />
-            Hem
-          </Button>
-          <div className="flex items-center gap-2">
-            {isConnected ? (
-              <>
-                <Wifi className="h-4 w-4 text-green-500" />
-                <span className="text-sm text-green-600 dark:text-green-400 font-medium">
-                  Ansluten
-                </span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="h-4 w-4 text-red-500" />
-                <span className="text-sm text-red-600 dark:text-red-400 font-medium">
-                  Ansluter...
-                </span>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="text-center mb-8">
-          {editingName ? (
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <Input
-                type="text"
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveName();
-                  if (e.key === 'Escape') handleCancelEditName();
-                }}
-                className="max-w-md text-center text-2xl font-bold"
-                autoFocus
-              />
-              <Button size="sm" onClick={handleSaveName}>
-                Spara
-              </Button>
-              <Button size="sm" variant="ghost" onClick={handleCancelEditName}>
-                Avbryt
-              </Button>
-            </div>
-          ) : (
-            <h1
-              className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-white mb-2 cursor-pointer hover:text-primary transition-colors"
-              onClick={handleStartEditName}
-              title="Klicka för att redigera"
-            >
-              {list.name || 'Namnlös lista'}
-            </h1>
-          )}
-          <p className="text-gray-600 dark:text-gray-300 mb-4">
-            Dela listan med andra genom att skicka länken
-          </p>
-          <div className="flex items-center justify-center gap-2">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-28">
+      {/* Header - Fixed */}
+      <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b shadow-sm">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className="flex items-center gap-3">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              onClick={handleCopyLink}
-              className="gap-2"
+              onClick={() => router.push('/')}
+              className="p-2 -ml-2"
             >
-              {copied ? (
-                <>
-                  <Check className="h-4 w-4" />
-                  Kopierad!
-                </>
-              ) : (
-                <>
-                  <Share2 className="h-4 w-4" />
-                  Dela lista
-                </>
-              )}
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+
+            {editingName ? (
+              <div className="flex-1 flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={tempName}
+                  onChange={(e) => setTempName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveName();
+                    if (e.key === 'Escape') setEditingName(false);
+                  }}
+                  className="h-9 text-lg font-semibold"
+                  autoFocus
+                />
+                <Button size="sm" onClick={handleSaveName}>OK</Button>
+              </div>
+            ) : (
+              <h1
+                className="flex-1 text-xl font-bold cursor-pointer truncate"
+                onClick={handleStartEditName}
+              >
+                {list.name || 'Min lista'}
+              </h1>
+            )}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleShare}
+              className="p-2"
+            >
+              <Share2 className="h-5 w-5" />
             </Button>
           </div>
+
+          {/* Offline indicator - only shown when disconnected */}
+          {!isConnected && (
+            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-400">
+              <WifiOff className="h-3.5 w-3.5" />
+              <span>Offline - ändringar synkas när du är online igen</span>
+            </div>
+          )}
         </div>
+      </div>
 
-        <Card className="shadow-xl">
-          <CardHeader>
-            <CardTitle>Uppgifter</CardTitle>
-            <CardDescription>
-              Ändringar syns omedelbart för alla med denna länk
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <form onSubmit={handleAddTodo} className="flex gap-2">
-              <Input
-                type="text"
-                placeholder="Lägg till en ny uppgift..."
-                value={newTodoText}
-                onChange={(e) => setNewTodoText(e.target.value)}
-                className="flex-1"
-              />
-              <Button type="submit" disabled={!isConnected || !newTodoText.trim()}>
-                Lägg till
-              </Button>
-            </form>
-
-            <div className="space-y-2">
-              {list.todos.length === 0 ? (
-                <div className="text-center py-8 text-gray-500">
-                  <p>Inga uppgifter än. Lägg till din första uppgift!</p>
-                </div>
-              ) : (
-                list.todos
-                  .sort((a, b) => b.createdAt - a.createdAt)
-                  .map((todo) => (
-                    <div
-                      key={todo.id}
-                      className="flex items-center gap-3 p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
-                    >
+      {/* Main Content */}
+      <div className="max-w-2xl mx-auto px-4 py-4">
+        {/* Active Todos */}
+        <div className="space-y-2">
+          {activeTodos.length === 0 ? (
+            <Card className="border-dashed">
+              <CardContent className="py-12 text-center text-gray-500">
+                <p>Inga uppgifter än</p>
+                <p className="text-sm mt-1">Lägg till din första uppgift nedan</p>
+              </CardContent>
+            </Card>
+          ) : (
+            activeTodos
+              .sort((a, b) => b.createdAt - a.createdAt)
+              .map((todo) => (
+                <Card key={todo.id} className="hover:shadow-md transition-shadow">
+                  <CardContent className="p-3">
+                    <div className="flex items-center gap-3">
                       <Checkbox
                         checked={todo.completed}
                         onCheckedChange={() => handleToggleTodo(todo)}
-                        disabled={!isConnected}
+                        className="h-6 w-6 flex-shrink-0"
                       />
-                      <Input
-                        type="text"
-                        value={todo.text}
-                        onChange={(e) => handleTextChange(todo.id, e.target.value)}
-                        disabled={!isConnected}
-                        className={`flex-1 border-0 bg-transparent focus-visible:ring-0 ${
-                          todo.completed ? 'line-through text-muted-foreground' : ''
-                        }`}
-                      />
+                      <div className="flex-1 flex items-baseline gap-2">
+                        {todo.amount && (
+                          <span className="font-semibold text-primary text-lg">
+                            {todo.amount}
+                          </span>
+                        )}
+                        {todo.unit && (
+                          <span className="text-sm text-gray-500 font-medium">
+                            {todo.unit}
+                          </span>
+                        )}
+                        <span className="text-base flex-1">
+                          {todo.text}
+                        </span>
+                      </div>
                       <Button
                         variant="ghost"
-                        size="icon"
+                        size="sm"
                         onClick={() => handleDeleteTodo(todo.id)}
-                        disabled={!isConnected}
-                        className="text-destructive hover:text-destructive"
+                        className="text-gray-400 hover:text-red-600 p-2 -mr-2 flex-shrink-0"
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-5 w-5" />
                       </Button>
                     </div>
-                  ))
-              )}
-            </div>
+                  </CardContent>
+                </Card>
+              ))
+          )}
+        </div>
 
-            {list.todos.length > 0 && (
-              <div className="text-sm text-muted-foreground text-center pt-4 border-t">
-                {list.todos.filter(t => t.completed).length} av {list.todos.length} uppgifter klara
+        {/* Completed Section */}
+        {completedTodos.length > 0 && (
+          <div className="mt-6">
+            <button
+              onClick={() => setShowCompleted(!showCompleted)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+            >
+              <span>Klara uppgifter ({completedTodos.length})</span>
+              {showCompleted ? (
+                <ChevronUp className="h-4 w-4" />
+              ) : (
+                <ChevronDown className="h-4 w-4" />
+              )}
+            </button>
+
+            {showCompleted && (
+              <div className="mt-2 space-y-2">
+                {completedTodos
+                  .sort((a, b) => b.createdAt - a.createdAt)
+                  .map((todo) => (
+                    <Card key={todo.id} className="bg-gray-50 dark:bg-gray-800/50">
+                      <CardContent className="p-3">
+                        <div className="flex items-center gap-3">
+                          <Checkbox
+                            checked={todo.completed}
+                            onCheckedChange={() => handleToggleTodo(todo)}
+                            className="h-6 w-6 flex-shrink-0"
+                          />
+                          <span className="flex-1 text-gray-500 line-through">
+                            {formatTodoDisplay(todo)}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleDeleteTodo(todo.id)}
+                            className="text-gray-400 hover:text-red-600 p-2 -mr-2"
+                          >
+                            <Trash2 className="h-5 w-5" />
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+
+                <Button
+                  variant="outline"
+                  onClick={deleteCompleted}
+                  className="w-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Radera alla klara uppgifter
+                </Button>
               </div>
             )}
-          </CardContent>
-        </Card>
-
-        <div className="mt-6 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-          <div className="flex items-start gap-3">
-            <Copy className="h-5 w-5 text-blue-600 dark:text-blue-400 mt-0.5 flex-shrink-0" />
-            <div className="flex-1">
-              <p className="text-sm font-medium text-blue-900 dark:text-blue-100 mb-1">
-                Dela denna lista
-              </p>
-              <p className="text-xs text-blue-700 dark:text-blue-300 mb-2">
-                Kopiera länken och dela med andra. Alla med länken kan se och redigera listan i realtid.
-              </p>
-              <code className="block text-xs bg-white dark:bg-gray-800 p-2 rounded border break-all">
-                {typeof window !== 'undefined' ? window.location.href.split('?')[0] : ''}
-              </code>
-            </div>
           </div>
+        )}
+      </div>
+
+      {/* Sticky Bottom Input */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-gray-800 border-t shadow-lg safe-area-inset-bottom">
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <form onSubmit={handleAddTodo}>
+            <div className="flex gap-2">
+              <GroceryAutocomplete
+                value={newTodoText}
+                onChange={setNewTodoText}
+                onSelectSuggestion={handleSelectSuggestion}
+                placeholder="mjölk, 4 apelsiner..."
+              />
+              <Button
+                type="submit"
+                disabled={!newTodoText.trim()}
+                className="h-14 px-6 text-base"
+                size="lg"
+              >
+                <Plus className="h-6 w-6" />
+              </Button>
+            </div>
+          </form>
         </div>
       </div>
     </div>
