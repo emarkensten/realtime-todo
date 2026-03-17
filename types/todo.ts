@@ -3,6 +3,7 @@ export interface Todo {
   text: string;
   amount?: string;  // "4", "2-3", "fem"
   unit?: string;    // "st", "kg", "g", "dl", "l", "ml"
+  category?: string;
   completed: boolean;
   createdAt: number;
 }

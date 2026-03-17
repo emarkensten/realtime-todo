@@ -1,15 +1,15 @@
 "use client"
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { v4 as uuidv4 } from 'uuid';
 import { useWebSocket } from '@/hooks/useWebSocket';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Trash2, ChevronDown, ChevronUp, Plus, ArrowLeft, Share2, WifiOff } from 'lucide-react';
 import { parseShoppingItem } from '@/lib/shoppingParser';
+import { searchGroceries } from '@/lib/groceryData';
 import { GroceryAutocomplete } from '@/components/GroceryAutocomplete';
 import type { Todo } from '@/types/todo';
 
@@ -18,15 +18,51 @@ interface TodoAppProps {
   initialName?: string;
 }
 
+const CATEGORY_ORDER = [
+  'Frukt',
+  'Grönsaker',
+  'Mejeri',
+  'Kött',
+  'Fisk',
+  'Bröd',
+  'Frukost',
+  'Skafferi',
+  'Pasta & Ris',
+  'Konserver',
+  'Kryddor',
+  'Bakning',
+  'Frys',
+  'Dryck',
+  'Snacks',
+  'Växtbaserat',
+  'Hygien',
+  'Baby',
+  'Djur',
+  'Övrigt',
+];
+
+function findCategoryForText(text: string): string {
+  const results = searchGroceries(text, 1);
+  return results.length > 0 ? results[0].category : 'Övrigt';
+}
+
+function formatTodoDisplay(todo: Todo): string {
+  const parts: string[] = [];
+  if (todo.amount) parts.push(todo.amount);
+  if (todo.unit) parts.push(todo.unit);
+  parts.push(todo.text);
+  return parts.join(' ');
+}
+
 export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
   const { list, isConnected, updateListName, addTodo, updateTodo, deleteTodo, deleteCompleted, updateTodoText } = useWebSocket(listId);
   const [newTodoText, setNewTodoText] = useState('');
-  const [showCompleted, setShowCompleted] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(true);
   const [editingName, setEditingName] = useState(false);
   const [tempName, setTempName] = useState('');
+  const [pendingCategory, setPendingCategory] = useState<string | undefined>();
   const router = useRouter();
 
-  // Set initial name if provided
   useEffect(() => {
     if (initialName && !list.name && isConnected) {
       updateListName(initialName);
@@ -36,47 +72,58 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
   const activeTodos = list.todos.filter(t => !t.completed);
   const completedTodos = list.todos.filter(t => t.completed);
 
-  // Submit todo logic - used both for form submit and when selecting from suggestions
-  const submitTodo = (text: string) => {
-    if (text.trim()) {
-      // Parse the input for shopping items
-      const parsedItems = parseShoppingItem(text);
-
-      // Add each parsed item as a separate todo
-      parsedItems.forEach(item => {
-        const newTodo: Todo = {
-          id: uuidv4(),
-          text: item.text,
-          amount: item.amount,
-          unit: item.unit,
-          completed: false,
-          createdAt: Date.now(),
-        };
-        addTodo(newTodo);
-      });
-
-      setNewTodoText('');
-
-      // Auto-scroll to top where new items appear
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Group active todos by category
+  const groupedTodos = useMemo(() => {
+    const groups: Record<string, Todo[]> = {};
+    for (const todo of activeTodos) {
+      const cat = todo.category || 'Övrigt';
+      // Map unknown categories to Övrigt so nothing gets lost
+      const resolvedCat = CATEGORY_ORDER.includes(cat) ? cat : 'Övrigt';
+      if (!groups[resolvedCat]) groups[resolvedCat] = [];
+      groups[resolvedCat].push(todo);
     }
+    for (const cat of Object.keys(groups)) {
+      groups[cat].sort((a, b) => b.createdAt - a.createdAt);
+    }
+    return CATEGORY_ORDER
+      .filter(cat => groups[cat]?.length > 0)
+      .map(cat => ({ category: cat, todos: groups[cat] }));
+  }, [activeTodos]);
+
+  const submitTodo = (text: string, category?: string) => {
+    if (!text.trim()) return;
+
+    const parsedItems = parseShoppingItem(text);
+    parsedItems.forEach(item => {
+      const resolvedCategory = category || findCategoryForText(item.text);
+      const newTodo: Todo = {
+        id: uuidv4(),
+        text: item.text,
+        amount: item.amount,
+        unit: item.unit,
+        category: resolvedCategory,
+        completed: false,
+        createdAt: Date.now(),
+      };
+      addTodo(newTodo);
+    });
+
+    setNewTodoText('');
+    setPendingCategory(undefined);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleAddTodo = (e: React.FormEvent) => {
     e.preventDefault();
-    submitTodo(newTodoText);
+    submitTodo(newTodoText, pendingCategory);
   };
 
-  const handleSelectSuggestion = (suggestion: string) => {
-    // When selecting from autocomplete, submit immediately
-    submitTodo(suggestion);
+  const handleSelectSuggestion = (suggestion: string, category?: string) => {
+    submitTodo(suggestion, category);
   };
 
   const handleToggleTodo = (todo: Todo) => {
-    updateTodo({
-      ...todo,
-      completed: !todo.completed,
-    });
+    updateTodo({ ...todo, completed: !todo.completed });
   };
 
   const handleDeleteTodo = (id: string) => {
@@ -99,10 +146,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
     const url = window.location.href.split('?')[0];
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: list.name || 'Min lista',
-          url: url
-        });
+        await navigator.share({ title: list.name || 'Min lista', url });
       } catch (err) {
         if ((err as Error).name !== 'AbortError') {
           await navigator.clipboard.writeText(url);
@@ -115,17 +159,9 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
     }
   };
 
-  const formatTodoDisplay = (todo: Todo) => {
-    const parts: string[] = [];
-    if (todo.amount) parts.push(todo.amount);
-    if (todo.unit) parts.push(todo.unit);
-    parts.push(todo.text);
-    return parts.join(' ');
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 pb-28">
-      {/* Header - Fixed */}
+      {/* Header */}
       <div className="sticky top-0 z-10 bg-white dark:bg-gray-800 border-b shadow-sm">
         <div className="max-w-2xl mx-auto px-4 py-3">
           <div className="flex items-center gap-3">
@@ -134,6 +170,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
               size="sm"
               onClick={() => router.push('/')}
               className="p-2 -ml-2"
+              aria-label="Tillbaka till startsidan"
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>
@@ -150,6 +187,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                   }}
                   className="h-9 text-lg font-semibold"
                   autoFocus
+                  aria-label="Listnamn"
                 />
                 <Button size="sm" onClick={handleSaveName}>OK</Button>
               </div>
@@ -167,16 +205,16 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
               size="sm"
               onClick={handleShare}
               className="p-2"
+              aria-label="Dela lista"
             >
               <Share2 className="h-5 w-5" />
             </Button>
           </div>
 
-          {/* Offline indicator - only shown when disconnected */}
           {!isConnected && (
-            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 mt-2 px-2 py-1.5 bg-amber-50 dark:bg-amber-900/20 rounded text-xs text-amber-700 dark:text-amber-400" role="status">
               <WifiOff className="h-3.5 w-3.5" />
-              <span>Offline - ändringar synkas när du är online igen</span>
+              <span>Offline – ändringar synkas när du är online igen</span>
             </div>
           )}
         </div>
@@ -184,30 +222,40 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
 
       {/* Main Content */}
       <div className="max-w-2xl mx-auto px-4 py-4">
-        {/* Active Todos */}
-        <div className="space-y-2">
-          {activeTodos.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="py-12 text-center text-gray-500">
-                <p>Inga uppgifter än</p>
-                <p className="text-sm mt-1">Lägg till din första uppgift nedan</p>
-              </CardContent>
-            </Card>
-          ) : (
-            activeTodos
-              .sort((a, b) => b.createdAt - a.createdAt)
-              .map((todo) => (
-                <Card key={todo.id} className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-3">
-                    <div className="flex items-center gap-3">
+        {/* Item count live region */}
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {activeTodos.length} aktiva varor, {completedTodos.length} klara
+        </div>
+
+        {/* Active Todos — grouped by category */}
+        {activeTodos.length === 0 ? (
+          <div className="py-16 text-center text-gray-400">
+            <p className="text-lg">Inga varor än</p>
+            <p className="text-sm mt-1">Lägg till din första vara nedan</p>
+          </div>
+        ) : (
+          <div role="list" aria-label="Inköpslista">
+            {groupedTodos.map(({ category, todos }) => (
+              <section key={category} className="mb-6" aria-label={category}>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500 px-1 mb-2">
+                  {category}
+                </h2>
+                <div className="space-y-0.5">
+                  {todos.map((todo) => (
+                    <div
+                      key={todo.id}
+                      role="listitem"
+                      className="group flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                    >
                       <Checkbox
                         checked={todo.completed}
                         onCheckedChange={() => handleToggleTodo(todo)}
-                        className="h-6 w-6 flex-shrink-0"
+                        className="h-5 w-5 flex-shrink-0"
+                        aria-label={`Markera ${formatTodoDisplay(todo)} som klar`}
                       />
-                      <div className="flex-1 flex items-baseline gap-2">
+                      <div className="flex-1 flex items-baseline gap-2 min-w-0">
                         {todo.amount && (
-                          <span className="font-semibold text-primary text-lg">
+                          <span className="font-semibold text-primary text-base tabular-nums">
                             {todo.amount}
                           </span>
                         )}
@@ -216,7 +264,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                             {todo.unit}
                           </span>
                         )}
-                        <span className="text-base flex-1">
+                        <span className="text-base truncate">
                           {todo.text}
                         </span>
                       </div>
@@ -224,25 +272,34 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteTodo(todo.id)}
-                        className="text-gray-400 hover:text-red-600 p-2 -mr-2 flex-shrink-0"
+                        className="text-gray-300 hover:text-red-600 p-1.5 -mr-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                        aria-label={`Ta bort ${formatTodoDisplay(todo)}`}
                       >
-                        <Trash2 className="h-5 w-5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
-                  </CardContent>
-                </Card>
-              ))
-          )}
-        </div>
+                  ))}
+                </div>
+              </section>
+            ))}
+          </div>
+        )}
 
         {/* Completed Section */}
         {completedTodos.length > 0 && (
-          <div className="mt-6">
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
             <button
               onClick={() => setShowCompleted(!showCompleted)}
-              className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+              className="w-full flex items-center justify-between px-1 py-2 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+              aria-expanded={showCompleted}
+              aria-controls="completed-section"
             >
-              <span>Klara uppgifter ({completedTodos.length})</span>
+              <span className="flex items-center gap-2">
+                Klart
+                <span className="inline-flex items-center justify-center h-5 min-w-[1.25rem] px-1.5 rounded-full bg-gray-200 dark:bg-gray-700 text-xs font-semibold tabular-nums">
+                  {completedTodos.length}
+                </span>
+              </span>
               {showCompleted ? (
                 <ChevronUp className="h-4 w-4" />
               ) : (
@@ -251,42 +308,45 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
             </button>
 
             {showCompleted && (
-              <div className="mt-2 space-y-2">
-                {completedTodos
-                  .sort((a, b) => b.createdAt - a.createdAt)
-                  .map((todo) => (
-                    <Card key={todo.id} className="bg-gray-50 dark:bg-gray-800/50">
-                      <CardContent className="p-3">
-                        <div className="flex items-center gap-3">
-                          <Checkbox
-                            checked={todo.completed}
-                            onCheckedChange={() => handleToggleTodo(todo)}
-                            className="h-6 w-6 flex-shrink-0"
-                          />
-                          <span className="flex-1 text-gray-500 line-through">
-                            {formatTodoDisplay(todo)}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteTodo(todo.id)}
-                            className="text-gray-400 hover:text-red-600 p-2 -mr-2"
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
+              <div id="completed-section" role="list" aria-label="Klara varor" className="mt-1">
+                <div className="space-y-0.5">
+                  {completedTodos
+                    .sort((a, b) => b.createdAt - a.createdAt)
+                    .map((todo) => (
+                      <div
+                        key={todo.id}
+                        role="listitem"
+                        className="group flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white dark:hover:bg-gray-800 transition-colors"
+                      >
+                        <Checkbox
+                          checked={todo.completed}
+                          onCheckedChange={() => handleToggleTodo(todo)}
+                          className="h-5 w-5 flex-shrink-0"
+                          aria-label={`Markera ${formatTodoDisplay(todo)} som ej klar`}
+                        />
+                        <span className="flex-1 text-sm text-gray-400 line-through truncate">
+                          {formatTodoDisplay(todo)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleDeleteTodo(todo.id)}
+                          className="text-gray-300 hover:text-red-600 p-1.5 -mr-1.5 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          aria-label={`Ta bort ${formatTodoDisplay(todo)}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                </div>
 
-                <Button
-                  variant="outline"
+                <button
                   onClick={deleteCompleted}
-                  className="w-full text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-900/20"
+                  className="mt-3 w-full text-center text-sm text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 py-2 transition-colors"
+                  aria-label="Rensa alla klara varor"
                 >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Radera alla klara uppgifter
-                </Button>
+                  Rensa alla
+                </button>
               </div>
             )}
           </div>
@@ -300,7 +360,10 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
             <div className="flex gap-2">
               <GroceryAutocomplete
                 value={newTodoText}
-                onChange={setNewTodoText}
+                onChange={(val) => {
+                  setNewTodoText(val);
+                  setPendingCategory(undefined);
+                }}
                 onSelectSuggestion={handleSelectSuggestion}
                 placeholder="mjölk, 4 apelsiner..."
               />
@@ -309,6 +372,7 @@ export function TodoApp({ listId, initialName = '' }: TodoAppProps) {
                 disabled={!newTodoText.trim()}
                 className="h-14 px-6 text-base"
                 size="lg"
+                aria-label="Lägg till vara"
               >
                 <Plus className="h-6 w-6" />
               </Button>
