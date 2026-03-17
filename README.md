@@ -13,6 +13,9 @@ En todo-applikation med realtidssynkronisering byggd med Next.js och shadcn/ui. 
 - 🎨 **Modern UI**: Byggd med shadcn/ui och Tailwind CSS
 - 🔌 **WebSocket-baserad**: Snabb och effektiv kommunikation
 - 🔄 **Automatisk återanslutning**: Ansluter automatiskt om anslutningen bryts
+- 🛒 **Smart autocomplete**: Typehead med 800+ matvaror, ghost text, och tangentbordsnavigering
+- 📂 **Kategorigruppering**: Varor grupperas automatiskt (Mejeri, Frukt, Kött, etc.)
+- ♿ **Tillgänglighet**: WAI-ARIA combobox, aria-live, tangentbordsnavigering
 
 ## Teknisk stack
 
@@ -99,13 +102,16 @@ React-hooken `useWebSocket` hanterar:
   /globals.css       - Global styling
 /components          - React-komponenter
   /ui/               - shadcn UI-komponenter
-  /TodoApp.tsx       - Huvudkomponent för todo-app
+  /TodoApp.tsx       - Huvudkomponent med kategorigruppering
+  /GroceryAutocomplete.tsx - Autocomplete med ghost text och tangentbordsnav
 /hooks               - Custom React hooks
   /useWebSocket.ts   - WebSocket-hantering med room-support
 /types               - TypeScript-typer
-  /todo.ts           - Todo och TodoList-typer
+  /todo.ts           - Todo och TodoList-typer (inkl. category)
 /lib                 - Utilities
   /utils.ts          - Hjälpfunktioner
+  /groceryData.ts    - 800+ matvaror med kategorier
+  /shoppingParser.ts - Parser för mängd/enhet/vara
 /data                - Persistent lagring (genereras automatiskt)
   /{listId}.json     - JSON-filer för varje lista
 server.js            - Custom server med WebSocket och fillagring
